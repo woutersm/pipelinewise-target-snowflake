@@ -422,7 +422,7 @@ def load_stream_batch(stream, records, row_count, db_sync, no_compression=False,
     """Load one batch of the stream into target table"""
     # Load into snowflake
     if row_count[stream] > 0:
-        flush_records(stream, records, db_sync, temp_dir, no_compression, archive_load_files)
+        flush_records_per_group(stream, records, db_sync, temp_dir, no_compression, archive_load_files)
 
         # Delete soft-deleted, flagged rows - where _sdc_deleted at is not null
         if delete_rows:
@@ -431,13 +431,64 @@ def load_stream_batch(stream, records, row_count, db_sync, no_compression=False,
         # reset row count for the current stream
         row_count[stream] = 0
 
+# create schema matching record (deleting unwanted keys)
+def schema_from_record(record, schema):
+    unwanted = set(schema) - set(record)
+
+    for unwanted_key in unwanted:
+        del schema[unwanted_key]
+
+    return schema
+
+
+# group records by unique combination of keys of a record
+def group_records(records, full_schema):
+    grouped_records = {}
+    
+    for record_key, record in records.items():
+      key = "-".join((list(record.keys())))
+      schema = schema_from_record(record, full_schema)
+
+      if key in grouped_records:
+        grouped_records[key]["records"][record_key] = record
+      else:
+        grouped_record[key] = {"records": {record_key: record}, "schema": schema})
+
+    return grouped_records
+
+
+def flush_records_per_group(stream: str,
+                             records: List[Dict],
+                             db_sync: DbSync,
+                             temp_dir: str = None,
+                             no_compression: bool = False,
+                             archive_load_files: Dict = None):
+
+
+    # [ {key: { records: { record_key: record }, schema: schema } } ]
+    grouped_records = group_records(records, db_sync.flatten_schema)
+
+    for key in grouped_records:
+        records = grouped_records[key]["records"]
+        schema = grouped_records[key]["schema"]
+
+        flush_records(stream,
+                      records,
+                      db_sync,
+                      temp_dir,
+                      no_compression,
+                      archive_load_files,
+                      schema
+                      )
+
 
 def flush_records(stream: str,
                   records: List[Dict],
                   db_sync: DbSync,
                   temp_dir: str = None,
                   no_compression: bool = False,
-                  archive_load_files: Dict = None) -> None:
+                  archive_load_files: Dict = None,
+                  schema = None) -> None:
     """
     Takes a list of record messages and loads it into the snowflake target table
 
@@ -456,7 +507,7 @@ def flush_records(stream: str,
     """
     # Generate file on disk in the required format
     filepath = db_sync.file_format.formatter.records_to_file(records,
-                                                             db_sync.flatten_schema,
+                                                             schema,
                                                              compression=not no_compression,
                                                              dest_dir=temp_dir,
                                                              data_flattening_max_level=
