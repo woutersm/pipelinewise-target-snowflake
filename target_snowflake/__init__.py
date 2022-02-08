@@ -431,9 +431,10 @@ def load_stream_batch(stream, records, row_count, db_sync, no_compression=False,
         # reset row count for the current stream
         row_count[stream] = 0
 
+
 # create schema matching record (deleting unwanted keys)
 def schema_from_record(record, schema):
-    unwanted = set(schema) - set(record)
+    unwanted = set(schema.keys()) - set(record.keys())
 
     for unwanted_key in unwanted:
         del schema[unwanted_key]
@@ -446,13 +447,14 @@ def group_records(records, full_schema):
     grouped_records = {}
     
     for record_key, record in records.items():
-      key = "-".join((list(record.keys())))
+      # a key needs to be hashable, frozenset is immutable and therefore hashable
+      key = frozenset(record.keys())
       schema = schema_from_record(record, full_schema)
 
       if key in grouped_records:
         grouped_records[key]["records"][record_key] = record
       else:
-        grouped_record[key] = {"records": {record_key: record}, "schema": schema})
+        grouped_records[key] = {"records": {record_key: record}, "schema": schema}
 
     return grouped_records
 
@@ -507,7 +509,7 @@ def flush_records(stream: str,
     """
     # Generate file on disk in the required format
     filepath = db_sync.file_format.formatter.records_to_file(records,
-                                                             schema,
+                                                             schema or db_sync.flatten_schema,
                                                              compression=not no_compression,
                                                              dest_dir=temp_dir,
                                                              data_flattening_max_level=
