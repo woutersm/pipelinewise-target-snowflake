@@ -446,15 +446,15 @@ def schema_from_record(record, schema):
 def group_records(records, full_schema):
     grouped_records = {}
     
-    for record_key, record in records.items():
+    for record_primary_key, record in records.items():
       # a key needs to be hashable, frozenset is immutable and therefore hashable
       key = frozenset(record.keys())
-      schema = schema_from_record(record, full_schema)
 
       if key in grouped_records:
-        grouped_records[key]["records"][record_key] = record
+        grouped_records[key]["records"][record_primary_key] = record
       else:
-        grouped_records[key] = {"records": {record_key: record}, "schema": schema}
+        schema = schema_from_record(record, full_schema)
+        grouped_records[key] = {"records": {record_primary_key: record}, "schema": schema}
 
     return grouped_records
 
@@ -477,20 +477,21 @@ def flush_records_per_group(stream: str,
         flush_records(stream,
                       records,
                       db_sync,
+                      schema,
                       temp_dir,
                       no_compression,
-                      archive_load_files,
-                      schema
+                      archive_load_files
                       )
 
 
 def flush_records(stream: str,
                   records: List[Dict],
                   db_sync: DbSync,
+                  schema: Dict,
                   temp_dir: str = None,
                   no_compression: bool = False,
                   archive_load_files: Dict = None,
-                  schema = None) -> None:
+                  ) -> None:
     """
     Takes a list of record messages and loads it into the snowflake target table
 
@@ -498,8 +499,8 @@ def flush_records(stream: str,
         stream: Name of the stream
         records: List of dictionary, that represents multiple csv lines. Dict key is the column name, value is the
                  column value
-        row_count:
         db_sync: A DbSync object
+        schema: The flattened schema
         temp_dir: Directory where intermediate temporary files will be created. (Default: OS specific temp directory)
         no_compression: Disable to use compressed files. (Default: False)
         archive_load_files: Data needed for archive load files. (Default: None)
@@ -509,7 +510,7 @@ def flush_records(stream: str,
     """
     # Generate file on disk in the required format
     filepath = db_sync.file_format.formatter.records_to_file(records,
-                                                             schema or db_sync.flatten_schema,
+                                                             schema,
                                                              compression=not no_compression,
                                                              dest_dir=temp_dir,
                                                              data_flattening_max_level=
