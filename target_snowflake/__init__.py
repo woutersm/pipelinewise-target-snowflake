@@ -554,6 +554,8 @@ def flush_records(stream: str,
         archive_file = os.path.basename(s3_key)
         archive_key = f"{archive_tap}/{archive_table}/{archive_file}"
 
+        archive_metadata = {k: v if v else "" for k, v in archive_metadata.items()}
+
         db_sync.copy_to_archive(s3_key, archive_key, archive_metadata)
 
     # Delete file from S3
